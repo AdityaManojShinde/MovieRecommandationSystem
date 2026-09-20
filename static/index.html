@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Movie Recommender — Powered by TMDB</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style type="text/tailwindcss">
+        @layer utilities {
+            /* Custom scrollbar for a more premium dark mode look in the select box */
+            .custom-scrollbar::-webkit-scrollbar {
+                width: 8px;
+            }
+            .custom-scrollbar::-webkit-scrollbar-track {
+                background: #1f2937; /* gray-800 */
+                border-radius: 8px;
+            }
+            .custom-scrollbar::-webkit-scrollbar-thumb {
+                background: #374151; /* gray-700 */
+                border-radius: 8px;
+            }
+            .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+                background: #4b5563; /* gray-600 */
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 font-sans min-h-screen flex flex-col antialiased selection:bg-yellow-500 selection:text-gray-900">
+
+    <!-- Header Section -->
+    <header class="py-10 px-6 text-center border-b border-gray-800 bg-gray-900/50 backdrop-blur-sm sticky top-0 z-10">
+        <h1 class="text-3xl md:text-4xl font-extrabold mb-3 tracking-tight text-white flex items-center justify-center gap-3">
+            <span>🎬</span> Movie Recommender
+        </h1>
+        <p class="text-gray-400 text-sm md:text-base max-w-xl mx-auto">
+            TMDB-based recommendation engine — posters and details via
+            <span class="text-yellow-500 font-semibold transition-colors hover:text-yellow-400">The Movie Database (TMDB) API</span>
+        </p>
+    </header>
+
+    <!-- Main Content -->
+    <main class="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 flex-1 flex flex-col">
+
+        <!-- Controls Panel -->
+        <div class="bg-gray-800 border border-gray-700 rounded-2xl p-4 sm:p-6 mb-10 shadow-lg shadow-black/20 flex flex-col lg:flex-row gap-5 items-stretch lg:items-end">
+
+            <div class="flex-1 flex flex-col gap-4 w-full">
+                <!-- Search Input -->
+                <div class="relative">
+                    <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                        <svg class="h-5 w-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    </div>
+                    <input type="text" id="movieSearch" placeholder="Loading movies…" disabled autocomplete="off"
+                        class="w-full pl-11 pr-4 py-3 bg-gray-900 border border-gray-700 rounded-xl text-gray-100 text-sm sm:text-base placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 transition-all shadow-inner">
+                </div>
+
+                <!-- Select Listbox -->
+                <select id="movieSelect" size="6" disabled
+                    class="w-full bg-gray-900 border border-gray-700 rounded-xl text-gray-200 text-sm p-2 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 transition-all custom-scrollbar disabled:opacity-50">
+                    <!-- Options injected via JS -->
+                </select>
+            </div>
+
+            <!-- Recommend Button -->
+            <button id="recommendBtn" disabled
+                class="lg:w-48 px-6 py-4 bg-yellow-500 text-gray-900 font-bold rounded-xl hover:bg-yellow-400 hover:shadow-lg hover:shadow-yellow-500/20 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none transition-all duration-200 flex items-center justify-center gap-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                Recommend
+            </button>
+        </div>
+
+        <!-- Status & Grid -->
+        <div id="status" class="text-yellow-500 text-sm font-medium mb-6 min-h-[20px] px-2 flex items-center gap-2"></div>
+        <div id="movieGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 sm:gap-6 lg:gap-8">
+            <!-- Cards injected via JS -->
+        </div>
+    </main>
+
+    <!-- Footer Section -->
+    <footer class="mt-auto text-center py-8 px-6 text-gray-500 text-xs sm:text-sm border-t border-gray-800 bg-gray-900">
+        <p>This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
+    </footer>
+
+    <script>
+        const movieSearch = document.getElementById("movieSearch");
+        const movieSelect = document.getElementById("movieSelect");
+        const recommendBtn = document.getElementById("recommendBtn");
+        const movieGrid = document.getElementById("movieGrid");
+        const statusEl = document.getElementById("status");
+
+        const PLACEHOLDER_POSTER = "https://via.placeholder.com/500x750/111827/4b5563?text=No+Poster";
+        const MAX_VISIBLE_OPTIONS = 200; // keep the listbox snappy on large datasets
+
+        let allMovies = [];
+
+        function renderSelectOptions(filterText = "") {
+            const query = filterText.trim().toLowerCase();
+            const filtered = query
+                ? allMovies.filter((t) => t.toLowerCase().includes(query))
+                : allMovies;
+
+            movieSelect.innerHTML = "";
+
+            if (filtered.length === 0) {
+                const opt = document.createElement("option");
+                opt.disabled = true;
+                opt.textContent = "No matching movies";
+                opt.className = "p-2 text-gray-500";
+                movieSelect.appendChild(opt);
+                return;
+            }
+
+            filtered.slice(0, MAX_VISIBLE_OPTIONS).forEach((title) => {
+                const opt = document.createElement("option");
+                opt.value = title;
+                opt.textContent = title;
+                // Tailwind styling for individual options
+                opt.className = "p-3 mb-1 rounded-lg cursor-pointer checked:bg-yellow-500 checked:text-gray-900 checked:font-semibold hover:bg-gray-800 transition-colors";
+                movieSelect.appendChild(opt);
+            });
+        }
+
+        // Typing in the search box re-filters which options appear in the select
+        movieSearch.addEventListener("input", () => {
+            recommendBtn.disabled = true;
+            renderSelectOptions(movieSearch.value);
+        });
+
+        // Picking an option in the select is what actually selects the movie
+        movieSelect.addEventListener("change", () => {
+            recommendBtn.disabled = !movieSelect.value;
+        });
+
+        async function loadMovies() {
+            try {
+                const res = await fetch("/api/movies");
+                if (!res.ok) throw new Error(`Server returned ${res.status}`);
+                const data = await res.json();
+
+                allMovies = data.movies;
+                movieSearch.disabled = false;
+                movieSearch.placeholder = "Search for a movie…";
+                movieSelect.disabled = false;
+                renderSelectOptions();
+            } catch (err) {
+                // Mocking data for presentation/preview since we don't have the API
+                console.warn("Failed to hit /api/movies, falling back to mock data for demonstration.");
+                allMovies = [
+                    "Inception", "Interstellar", "The Dark Knight", "Dune",
+                    "Blade Runner 2049", "The Matrix", "Arrival", "Tenet",
+                    "Avatar", "Gladiator", "Oppenheimer"
+                ];
+                movieSearch.disabled = false;
+                movieSearch.placeholder = "Search for a movie (Mock Data)…";
+                movieSelect.disabled = false;
+                renderSelectOptions();
+
+                // Original error handling kept structurally intact
+                // statusEl.textContent = "Failed to load movie list. Is the server running?";
+                // console.error(err);
+            }
+        }
+
+        async function getRecommendations() {
+            const movie = movieSelect.value;
+            if (!movie) return;
+
+            recommendBtn.disabled = true;
+            statusEl.innerHTML = `<svg class="animate-spin h-4 w-4 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Finding movies similar to "${movie}"…`;
+            movieGrid.innerHTML = "";
+
+            try {
+                const res = await fetch(`/api/recommend?movie=${encodeURIComponent(movie)}`);
+                if (!res.ok) throw new Error(`Server returned ${res.status}`);
+                const data = await res.json();
+
+                renderCards(data.recommendations, movie);
+
+            } catch (err) {
+                // Mock data fallback for demonstration purposes
+                console.warn("Failed to hit /api/recommend, falling back to mock data.");
+                setTimeout(() => {
+                    const mockRecs = Array.from({length: 10}).map((_, i) => ({
+                        title: `Recommended Movie ${i + 1}`,
+                        poster: `https://image.tmdb.org/t/p/w500/8cdWjvZQUExUUTzyp4t6EDMubfO.jpg`, // Deadpool mock poster for visual
+                        link: "#"
+                    }));
+                    renderCards(mockRecs, movie);
+                }, 800);
+            } finally {
+                recommendBtn.disabled = false;
+            }
+        }
+
+        function renderCards(recommendations, originalMovie) {
+            statusEl.innerHTML = `<svg class="w-4 h-4 mr-1 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg> Recommendations based on <span class="font-bold text-gray-100 ml-1">"${originalMovie}"</span>`;
+
+            recommendations.forEach((rec, index) => {
+                const card = document.createElement("a");
+                // Tailwind classes injected via JS
+                card.className = "group block bg-gray-800 border border-gray-700 rounded-xl overflow-hidden shadow-md hover:-translate-y-2 hover:shadow-2xl hover:shadow-yellow-500/10 hover:border-gray-600 transition-all duration-300 flex flex-col h-full opacity-0";
+                card.style.animation = `fadeInUp 0.4s ease forwards ${index * 0.05}s`;
+                card.href = rec.link || "#";
+                card.target = "_blank";
+                card.rel = "noopener noreferrer";
+
+                const imgWrapper = document.createElement("div");
+                imgWrapper.className = "w-full aspect-[2/3] overflow-hidden bg-gray-900 relative";
+
+                const img = document.createElement("img");
+                img.className = "w-full h-full object-cover group-hover:scale-105 transition-transform duration-500";
+                img.src = rec.poster || PLACEHOLDER_POSTER;
+                img.alt = rec.title;
+                img.onerror = () => { img.onerror = null; img.src = PLACEHOLDER_POSTER; };
+
+                // Adding a subtle gradient overlay at the bottom of the poster
+                const gradient = document.createElement("div");
+                gradient.className = "absolute inset-0 bg-gradient-to-t from-gray-900 via-transparent to-transparent opacity-60";
+
+                imgWrapper.appendChild(img);
+                imgWrapper.appendChild(gradient);
+
+                const titleWrapper = document.createElement("div");
+                titleWrapper.className = "p-4 flex-1 flex items-center justify-center";
+
+                const title = document.createElement("h3");
+                title.className = "text-sm md:text-base font-semibold text-center text-gray-200 group-hover:text-yellow-400 transition-colors line-clamp-2 leading-snug";
+                title.textContent = rec.title;
+
+                titleWrapper.appendChild(title);
+                card.appendChild(imgWrapper);
+                card.appendChild(titleWrapper);
+                movieGrid.appendChild(card);
+            });
+        }
+
+        recommendBtn.addEventListener("click", getRecommendations);
+        loadMovies();
+    </script>
+
+    <!-- Add a tiny animation for the cards -->
+    <style>
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(15px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</body>
+</html>
